@@ -20,21 +20,6 @@
 
 #define safe_emalloc(nmemb, size, offset)  malloc((nmemb) * (size) + (offset)) 
 
-#define CLFACTORY_BEGIN_CODE "return function() "
-#define CLFACTORY_BEGIN_SIZE (sizeof(CLFACTORY_BEGIN_CODE)-1)
-
-#define CLFACTORY_END_CODE " end"
-#define CLFACTORY_END_SIZE (sizeof(CLFACTORY_END_CODE)-1)
-
-typedef struct {
-    int sent_begin;
-    int sent_end;
-    int extraline;
-    FILE *f;
-    char buff[LUAL_BUFFERSIZE];
-} clfactory_file_ctx_t;
-
-
 //Global Setting
 lua_State *L; /* lua state handle */
 
@@ -46,10 +31,6 @@ static void ngx_http_lua_process_exit(ngx_cycle_t *cycle);
 
 static ngx_int_t make_http_header(ngx_http_request_t *r);
 static ngx_int_t make_http_get_body(ngx_http_request_t *r, char *out_buf);
-
-int ngx_http_lua_clfactory_loadfile(lua_State *L, const char *filename);
-static int clfactory_errfile(lua_State *L, const char *what, int fname_index);
-static const char * clfactory_getF(lua_State *L, void *ud, size_t *size);
 
 static char g_foo_settings[64] = {0};
 
@@ -211,39 +192,18 @@ ngx_http_lua_handler(ngx_http_request_t *r)
 
 
     lua_State *cr = lua_newthread(L);
-#if 0
-    if (cr) {
-        /*  new globals table for coroutine */
-        lua_newtable(cr);
+	
+    //lua_register(cr, "print", print);
 
-        /*  {{{ inherit coroutine's globals to main thread's globals table
-         *  for print() function will try to find tostring() in current
-         *  globals *  table. */
-        lua_createtable(cr, 0, 1);
-        lua_pushvalue(cr, LUA_GLOBALSINDEX);
-        lua_setfield(cr, -2, "__index");
-        lua_setmetatable(cr, -2);
-        /*  }}} */
+    lua_pushstring(cr, "fucking");
+    luaL_loadfile(cr, "/usr/local/nginx/conf/test.lua");
+    lua_rawset(cr, LUA_GLOBALSINDEX);
+    // Call func
+    lua_getglobal(cr, "fucking");
+    if (lua_resume(cr, 0)) {
+        //printf( "%s\n", lua_tostring( L, 1 ) );
 
-        lua_replace(cr, LUA_GLOBALSINDEX);
-    }
-
-    if (cr == NULL) {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                "(lua-content-by-chunk) failed to create new coroutine "
-                "to handle request");
-
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    /*  move code closure to new coroutine */
-    lua_xmove(L, cr, 1);
-
-    /*  set closure's env table to new coroutine's globals table */
-    lua_pushvalue(cr, LUA_GLOBALSINDEX);
-    lua_setfenv(cr, -2);
-#endif
-    if (0!=ngx_http_lua_clfactory_loadfile(cr, "/usr/local/nginx/conf/test.lua")) { /* load the compile template functions */
+    //if (luaL_dofile(cr, "/usr/local/nginx/conf/test.lua") != 0) {
     //if (luaL_loadfile(cr, "/usr/local/nginx/conf/test.lua") || lua_pcall(cr, 0, 0, 0)) { /* load the compile template functions */
 	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "runtime error: %s", lua_tostring(cr, -1));
@@ -328,120 +288,4 @@ ngx_http_lua_process_exit(ngx_cycle_t *cycle)
 {
     lua_close(L);
     return;
-}
-
-int
-ngx_http_lua_clfactory_loadfile(lua_State *L, const char *filename)
-{
-    clfactory_file_ctx_t        lf;
-    int                         status, readstatus;
-    int                         c;
-
-    /* index of filename on the stack */
-    int                         fname_index;
-
-    fname_index = lua_gettop(L) + 1;
-
-    lf.extraline = 0;
-
-    if (filename == NULL) {
-        lua_pushliteral(L, "=stdin");
-        lf.f = stdin;
-
-    } else {
-        lua_pushfstring(L, "@%s", filename);
-        lf.f = fopen(filename, "r");
-
-        if (lf.f == NULL)
-            return clfactory_errfile(L, "open", fname_index);
-    }
-
-    c = getc(lf.f);
-
-    if (c == '#') {  /* Unix exec. file? */
-        lf.extraline = 1;
-
-        while ((c = getc(lf.f)) != EOF && c != '\n') {
-            /* skip first line */
-        }
-
-        if (c == '\n') {
-            c = getc(lf.f);
-        }
-    }
-
-    if (c == LUA_SIGNATURE[0] && filename) {  /* binary file? */
-        /* no binary file supported as closure factory code needs to be */
-        /* compiled to bytecode along with user code */
-        return clfactory_errfile(L, "load binary file", fname_index);
-    }
-
-    ungetc(c, lf.f);
-
-    lf.sent_begin = lf.sent_end = 0;
-    status = lua_load(L, clfactory_getF, &lf, lua_tostring(L, -1));
-
-    readstatus = ferror(lf.f);
-
-    if (filename)
-        fclose(lf.f);  /* close file (even in case of errors) */
-
-    if (readstatus) {
-        lua_settop(L, fname_index);  /* ignore results from `lua_load' */
-        return clfactory_errfile(L, "read", fname_index);
-    }
-
-    lua_remove(L, fname_index);
-
-    return status;
-}
-
-static int
-clfactory_errfile(lua_State *L, const char *what, int fname_index)
-{
-    const char      *serr;
-    const char      *filename;
-
-    serr = strerror(errno);
-    filename = lua_tostring(L, fname_index) + 1;
-
-    lua_pushfstring(L, "cannot %s %s: %s", what, filename, serr);
-    lua_remove(L, fname_index);
-
-    return LUA_ERRFILE;
-}
-
-
-static const char *
-clfactory_getF(lua_State *L, void *ud, size_t *size)
-{
-    clfactory_file_ctx_t        *lf;
-
-    lf = (clfactory_file_ctx_t *) ud;
-
-    if (lf->sent_begin == 0) {
-        lf->sent_begin = 1;
-        *size = CLFACTORY_BEGIN_SIZE;
-        return CLFACTORY_BEGIN_CODE;
-    }
-
-    if (lf->extraline) {
-        lf->extraline = 0;
-        *size = 1;
-        return "\n";
-    }
-
-    if (feof(lf->f)) {
-        if (lf->sent_end == 0) {
-            lf->sent_end = 1;
-            *size = CLFACTORY_END_SIZE;
-            return CLFACTORY_END_CODE;
-        }
-
-        return NULL;
-    }
-
-    *size = fread(lf->buff, 1, sizeof(lf->buff), lf->f);
-
-    return (*size > 0) ? lf->buff : NULL;
 }
