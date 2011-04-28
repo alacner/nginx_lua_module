@@ -191,31 +191,39 @@ ngx_http_lua_handler(ngx_http_request_t *r)
     }
 
 
-    lua_State *cr = lua_newthread(L);
-	
-    //lua_register(cr, "print", print);
-
-    lua_pushstring(cr, "fucking");
-    luaL_loadfile(cr, "/usr/local/nginx/conf/test.lua");
-    lua_rawset(cr, LUA_GLOBALSINDEX);
-    // Call func
-    lua_getglobal(cr, "fucking");
-    if (lua_resume(cr, 0)) {
-        //printf( "%s\n", lua_tostring( L, 1 ) );
-
-    //if (luaL_dofile(cr, "/usr/local/nginx/conf/test.lua") != 0) {
-    //if (luaL_loadfile(cr, "/usr/local/nginx/conf/test.lua") || lua_pcall(cr, 0, 0, 0)) { /* load the compile template functions */
+    if (luaL_dofile(L, "/usr/local/nginx/conf/test.lua") != 0) {
 	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                "runtime error: %s", lua_tostring(cr, -1));
-        lua_pop(cr, 1);
+                "runtime error: %s", lua_tostring(L, -1));
+        lua_pop(L, 1);
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
     //sprintf(out_buf, "%s", lua_tostring(cr, -1));
     //lua_pop(cr, 1);
 
-    //lua_close(cr);
 
+
+    //lua_State *cr = lua_newthread(L);
+#if 0
+    lua_pushstring(cr, "fucking");
+    status = luaL_loadfile(cr, "/usr/local/nginx/conf/test.lua");
+    if (status == 0) {
+    lua_rawset(cr, LUA_GLOBALSINDEX);
+    // Call func
+    lua_getglobal(cr, "fucking");
+    if (lua_resume(cr, 0)) {
+#endif
+    //if (luaL_dofile(cr, "/usr/local/nginx/conf/test.lua") != 0) {
+//	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+ //               "runtime error: %s", lua_tostring(cr, -1));
+  //      lua_pop(cr, 1);
+   //     return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    //}
+
+    //sprintf(out_buf, "%s", lua_tostring(cr, -1));
+    //lua_pop(cr, 1);
+
+    //lua_close(cr);
 
 
     b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
@@ -272,7 +280,10 @@ ngx_http_lua_process_init(ngx_cycle_t *cycle)
         dd("Failed to initialize Lua VM");
         return NGX_ERROR;
     }
+
+    lua_gc(L, LUA_GCSTOP, 0);
     luaL_openlibs(L);
+    lua_gc(L, LUA_GCRESTART, 0);
 
     //lua_pushcfunction(L, ngx_http_lua_print);
     //lua_setglobal(L, "print");
