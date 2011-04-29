@@ -54,7 +54,7 @@ static int luaM_set_cookie (lua_State *L);
 #endif
 
 static int
-luaM_print (lua_State *L) {
+luaM_print2 (lua_State *L) {
     const char *str = luaL_optstring(L, 1, NULL);
 
     lua_getglobal(L, LUA_NGX_RESPONSE_BUFFER);
@@ -67,6 +67,16 @@ luaM_print (lua_State *L) {
     lua_pushlightuserdata(L, out_buf);
     lua_setglobal(L, LUA_NGX_RESPONSE_BUFFER);
 
+    return 0;
+}
+
+static int
+luaM_print (lua_State *L) {
+    const char *str = luaL_optstring(L, 1, NULL);
+
+    lua_getfield(L, LUA_GLOBALSINDEX, LUA_NGX_RESPONSE_BUFFER);
+    lua_pushstring(L, str);
+    lua_rawset(L, -2)
     return 0;
 }
 
@@ -246,7 +256,8 @@ static ngx_int_t make_http_body_by_lua(ngx_http_request_t *r, char *out_buf){
 
 
     /* push out_buf to lua */
-    lua_pushlightuserdata(L, out_buf);
+    //lua_pushlightuserdata(L, out_buf);
+    lua_newtable(L); /* out buffer */
     lua_setglobal(L, LUA_NGX_RESPONSE_BUFFER);
 
     lua_newtable(L); /* ngx */
@@ -277,6 +288,7 @@ static ngx_int_t make_http_body_by_lua(ngx_http_request_t *r, char *out_buf){
 
     lua_setglobal(L, "ngx");
 
+
     if (luaL_dofile(L, "/usr/local/nginx/conf/test.lua") != 0) {
 	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "runtime error: %s", lua_tostring(L, -1));
@@ -284,6 +296,9 @@ static ngx_int_t make_http_body_by_lua(ngx_http_request_t *r, char *out_buf){
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    
+    lua_getfield(L, LUA_GLOBALSINDEX, LUA_NGX_RESPONSE_BUFFER);
+    lua_concat()
 
     return NGX_OK;
 }
