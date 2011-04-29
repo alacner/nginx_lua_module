@@ -20,6 +20,9 @@
 
 #define safe_emalloc(nmemb, size, offset)  malloc((nmemb) * (size) + (offset)) 
 
+#define LUA_NGX_REQUEST "ngx.request" /* nginx request pointer */
+#define LUA_NGX_RESPONSE_BUFFER "ngx.response.buffer" /* nginx request pointer */
+
 //Global Setting
 lua_State *L; /* lua state handle */
 
@@ -30,9 +33,42 @@ static ngx_int_t ngx_http_lua_process_init(ngx_cycle_t *cycle);
 static void ngx_http_lua_process_exit(ngx_cycle_t *cycle);
 
 static ngx_int_t make_http_header(ngx_http_request_t *r);
-static ngx_int_t make_http_get_body(ngx_http_request_t *r, char *out_buf);
+static ngx_int_t make_http_body_by_lua(ngx_http_request_t *r, char *out_buf);
+static void log_wrapper(ngx_http_request_t *r, const char *ident, int level, lua_State *L);
 
 static char g_foo_settings[64] = {0};
+
+static int luaM_print (lua_State *L);
+#if 0
+static int luaM_get_header (lua_State *L);
+static int luaM_set_header (lua_State *L);
+
+static int luaM_get_request (lua_State *L);
+static int luaM_get_get (lua_State *L);
+static int luaM_get_post (lua_State *L);
+static int luaM_get_files (lua_State *L);
+
+static int luaM_get_cookie (lua_State *L);
+static int luaM_set_cookie (lua_State *L);
+
+#endif
+
+static int
+luaM_print (lua_State *L) {
+    const char *str = luaL_optstring(L, 1, NULL);
+
+    lua_getglobal(L, LUA_NGX_RESPONSE_BUFFER);
+    char *out_buf = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    sprintf(out_buf, "%s%s", out_buf, str);
+
+    /* push out_buf to lua */
+    lua_pushlightuserdata(L, out_buf);
+    lua_setglobal(L, LUA_NGX_RESPONSE_BUFFER);
+
+    return 0;
+}
 
 /* Commands */
 static ngx_command_t  ngx_http_lua_commands[] = {
@@ -83,6 +119,78 @@ ngx_module_t  ngx_http_lua_module = {
     NGX_MODULE_V1_PADDING
 };
 
+int
+ngx_http_lua_print(lua_State *L)
+{
+    ngx_http_request_t *r;
+
+    lua_getglobal(L, LUA_NGX_REQUEST);
+    r = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (r && r->connection && r->connection->log) {
+        log_wrapper(r, "lua print: ", NGX_LOG_NOTICE, L);
+
+    } else {
+        dd("(lua-print) can't output print content to error log due "
+                "to invalid logging context!");
+    }
+
+    return 0;
+}
+
+static void
+log_wrapper(ngx_http_request_t *r, const char *ident, int level, lua_State *L)
+{
+    u_char              *buf;
+    u_char              *p;
+    u_char              *q;
+    int                  nargs, i;
+    size_t               size, len;
+
+    nargs = lua_gettop(L);
+    if (nargs == 0) {
+        buf = NULL;
+        goto done;
+    }
+
+    size = 0;
+
+    for (i = 1; i <= nargs; i++) {
+        if (lua_type(L, i) == LUA_TNIL) {
+            size += sizeof("nil") - 1;
+        } else {
+            luaL_checkstring(L, i);
+            lua_tolstring(L, i, &len);
+            size += len;
+        }
+    }
+
+    buf = ngx_palloc(r->pool, size + 1);
+    if (buf == NULL) {
+        luaL_error(L, "out of memory");
+        return;
+    }
+
+    p = buf;
+    for (i = 1; i <= nargs; i++) {
+        if (lua_type(L, i) == LUA_TNIL) {
+            *p++ = 'n';
+            *p++ = 'i';
+            *p++ = 'l';
+        } else {
+            q = (u_char *) lua_tolstring(L, i, &len);
+            p = ngx_copy(p, q, len);
+        }
+    }
+
+    *p++ = '\0';
+
+done:
+    ngx_log_error((ngx_uint_t) level, r->connection->log, 0,
+            "%s%s", ident, (buf == NULL) ? (u_char *) "(null)" : buf);
+}
+
 /* setting header for no-cache */
 static ngx_int_t make_http_header(ngx_http_request_t *r){
     ngx_uint_t        i;
@@ -130,23 +238,52 @@ static ngx_int_t make_http_header(ngx_http_request_t *r){
     return NGX_OK;
 }
 
-static ngx_int_t make_http_get_body(ngx_http_request_t *r, char *out_buf){
-    char *qs_start = (char *)r->args_start;
-    char *qs_end = (char *)r->uri_end;
-    char uri[128] = {0};
-    char *id;
+static ngx_int_t make_http_body_by_lua(ngx_http_request_t *r, char *out_buf){
 
-    if (qs_start == NULL || qs_end == NULL){
-        return NGX_HTTP_BAD_REQUEST;
+    /* push ngx_http_request_t to lua */
+    lua_pushlightuserdata(L, r);
+    lua_setglobal(L, LUA_NGX_REQUEST);
+
+
+    /* push out_buf to lua */
+    lua_pushlightuserdata(L, out_buf);
+    lua_setglobal(L, LUA_NGX_RESPONSE_BUFFER);
+
+    lua_newtable(L); /* ngx */
+
+    lua_pushnumber(L, ngx_random());
+    lua_setfield(L, -2, "random");
+
+    lua_pushcfunction(L, luaM_print);
+    lua_setfield(L, -2, "print");
+
+    /* {{{ ngx.server */
+    lua_newtable(L);
+
+    lua_pushlstring(L, (const char *)r->uri.data, r->uri.len);
+    lua_setfield(L, -2, "REQUEST_URI");
+
+    lua_pushlstring(L, (const char *)r->args.data, r->args.len);
+    lua_setfield(L, -2, "QUERY_STRING");
+
+    lua_pushnumber(L, (int)time((time_t*)NULL));
+    lua_setfield(L, -2, "REQUEST_TIME");
+
+    lua_pushnumber(L, r->method);
+    lua_setfield(L, -2, "REQUEST_METHOD");
+
+    lua_setfield(L, -2, "server");
+    /* }}} */
+
+    lua_setglobal(L, "ngx");
+
+    if (luaL_dofile(L, "/usr/local/nginx/conf/test.lua") != 0) {
+	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "runtime error: %s", lua_tostring(L, -1));
+        lua_pop(L, 1);
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
-    if ((memcmp(qs_start, "id=", 3) == 0)){
-        id = qs_start + 3;
-        *qs_end = '\0';
-    }else{
-        return NGX_HTTP_BAD_REQUEST;
-    }
-    snprintf(uri, r->uri.len + 1, "%s", r->uri.data);
-    sprintf(out_buf, "nconfig=%snid=%snuri=%snret=%lxn", g_foo_settings, id, uri, ngx_random());
+
 
     return NGX_OK;
 }
@@ -180,51 +317,15 @@ ngx_http_lua_handler(ngx_http_request_t *r)
     if (r->method == NGX_HTTP_HEAD) {
         r->headers_out.status = NGX_HTTP_OK;
         return ngx_http_send_header(r);
-    } else if (r->method == NGX_HTTP_GET) {
-        /* make http get body buffer */
-        rc = make_http_get_body(r, out_buf);
+    } else if (r->method == NGX_HTTP_GET || r->method == NGX_HTTP_GET) {
+        /* make http body buffer by lua */
+        rc = make_http_body_by_lua(r, out_buf);
         if (rc != NGX_OK) {
             return rc;
         }
     } else {
         return NGX_HTTP_NOT_ALLOWED;
     }
-
-
-    if (luaL_dofile(L, "/usr/local/nginx/conf/test.lua") != 0) {
-	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                "runtime error: %s", lua_tostring(L, -1));
-        lua_pop(L, 1);
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    //sprintf(out_buf, "%s", lua_tostring(cr, -1));
-    //lua_pop(cr, 1);
-
-
-
-    //lua_State *cr = lua_newthread(L);
-#if 0
-    lua_pushstring(cr, "fucking");
-    status = luaL_loadfile(cr, "/usr/local/nginx/conf/test.lua");
-    if (status == 0) {
-    lua_rawset(cr, LUA_GLOBALSINDEX);
-    // Call func
-    lua_getglobal(cr, "fucking");
-    if (lua_resume(cr, 0)) {
-#endif
-    //if (luaL_dofile(cr, "/usr/local/nginx/conf/test.lua") != 0) {
-//	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
- //               "runtime error: %s", lua_tostring(cr, -1));
-  //      lua_pop(cr, 1);
-   //     return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    //}
-
-    //sprintf(out_buf, "%s", lua_tostring(cr, -1));
-    //lua_pop(cr, 1);
-
-    //lua_close(cr);
-
 
     b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
     if (b == NULL) {
@@ -247,6 +348,7 @@ ngx_http_lua_handler(ngx_http_request_t *r)
         return rc;
     }
 
+    ngx_http_output_filter(r, &out);
     return ngx_http_output_filter(r, &out);
 }
 
@@ -285,8 +387,8 @@ ngx_http_lua_process_init(ngx_cycle_t *cycle)
     luaL_openlibs(L);
     lua_gc(L, LUA_GCRESTART, 0);
 
-    //lua_pushcfunction(L, ngx_http_lua_print);
-    //lua_setglobal(L, "print");
+    lua_pushcfunction(L, ngx_http_lua_print);
+    lua_setglobal(L, "print");
 
     dd("Lua VM initialized!");
     //ngx_log_debug0(NGX_LOG_DEBUG_CORE, cycle->log, 0, "Lua VM initialized!");
