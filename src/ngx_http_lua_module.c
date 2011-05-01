@@ -268,8 +268,41 @@ static ngx_int_t make_ngx_http_by_lua(ngx_http_request_t *r){
     lua_pushnumber(L, (int)time((time_t*)NULL));
     lua_setfield(L, -2, "REQUEST_TIME");
 
-    lua_pushnumber(L, r->method);
+    lua_pushlstring(L, (const char *)r->http_protocol.data, r->http_protocol.len);
+    lua_setfield(L, -2, "SERVER_PROTOCOL");
+
+    lua_pushlstring(L, (const char *)r->method_name.data, r->method_name.len);
     lua_setfield(L, -2, "REQUEST_METHOD");
+
+    if (r->headers_in.connection) {
+        lua_pushlstring(L, (const char *)r->headers_in.connection->value.data, r->headers_in.connection->value.len);
+        lua_setfield(L, -2, "HTTP_CONNECTION");
+    }
+
+    lua_pushlstring(L, (const char *)r->headers_in.host->value.data, r->headers_in.host->value.len);
+    lua_setfield(L, -2, "HTTP_HOST");
+
+    lua_pushlstring(L, (const char *)r->headers_in.user_agent->value.data, r->headers_in.user_agent->value.len);
+    lua_setfield(L, -2, "HTTP_USER_AGENT");
+
+    if (r->headers_in.referer) {
+        lua_pushlstring(L, (const char *)r->headers_in.referer->value.data, r->headers_in.referer->value.len);
+        lua_setfield(L, -2, "HTTP_REFERER");
+    }
+
+#if (NGX_HTTP_PROXY || NGX_HTTP_REALIP || NGX_HTTP_GEO)
+    if (r->headers_in.x_forwarded_for) {
+        lua_pushlstring(L, (const char *)r->headers_in.x_forwarded_for->value.data, r->headers_in.x_forwarded_for->value.len);
+        lua_setfield(L, -2, "X_FORWARDED_FOR");
+    }
+#endif
+
+#if (NGX_HTTP_REALIP)
+    if (r->headers_in.x_real_ip) {
+        lua_pushlstring(L, (const char *)r->headers_in.x_real_ip->value.data, r->headers_in.x_real_ip->value.len);
+        lua_setfield(L, -2, "X_REAL_IP");
+    }
+#endif
 
     lua_setfield(L, -2, "server");
     /* }}} */
