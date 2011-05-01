@@ -1,3 +1,4 @@
+-- Copyright (C) Alacner 
 --package.path = package.path .. '/usr/local/lib/lua/5.1/?.lua;/usr/local/lib/lua/5.1/?/core.lua;;'
 --package.cpath = package.cpath .. '/usr/local/lib/lua/5.1/?.so;/usr/local/lib/lua/5.1/?/core.so;;';
 
