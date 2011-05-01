@@ -1,1 +1,12 @@
+-- exapmle:
+        location ~/test {
+            lua_file "/usr/local/nginx/conf/test.lua";
+        }
+
+        location ~/lua {
+            lua_file "/usr/local/nginx/conf/lua.lua";
+        }
+
+
+
 Tue Apr 26 16:30:00 MST 2011

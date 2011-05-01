@@ -44,12 +44,10 @@ static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char 
 static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r);
 static void log_wrapper(ngx_http_request_t *r, const char *ident, int level, lua_State *L);
 
-static char g_foo_settings[64] = {0};
-
 static int luaM_print (lua_State *L);
 static int luaM_set_header (lua_State *L);
-static int luaM_get_get (lua_State *L);
 #if 0
+static int luaM_get_get (lua_State *L);
 
 static int luaM_get_request (lua_State *L);
 static int luaM_get_post (lua_State *L);
@@ -122,7 +120,7 @@ static ngx_http_module_t  ngx_http_lua_module_ctx = {
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
 
-    ngx_http_lua_create_loc_conf,                                  /* create location configuration */
+    ngx_http_lua_create_loc_conf,          /* create location configuration */
     NULL                                   /* merge location configuration */
 };
 
@@ -264,9 +262,6 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
 
     lua_newtable(L); /* ngx */
 
-    lua_pushstring(L, llcf->file_src.data);
-    lua_setfield(L, -2, "script_path");
-
     lua_pushnumber(L, ngx_random());
     lua_setfield(L, -2, "random");
 
@@ -278,6 +273,9 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
 
     /* {{{ ngx.server */
     lua_newtable(L);
+
+    lua_pushlstring(L, (const char *)llcf->file_src.data, llcf->file_src.len);
+    lua_setfield(L, -2, "SCRIPT_FILENAME");
 
     lua_pushlstring(L, (const char *)r->uri.data, r->uri.len);
     lua_setfield(L, -2, "REQUEST_URI");
@@ -330,7 +328,7 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
     lua_setglobal(L, "ngx");
 
     // execute lua code
-    if (luaL_dofile(L, "/usr/local/nginx/conf/test.lua") != 0) {
+    if (luaL_dofile(L, (const char *)llcf->file_src.data) != 0) {
 	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "runtime error: %s", lua_tostring(L, -1));
         lua_pop(L, 1);
