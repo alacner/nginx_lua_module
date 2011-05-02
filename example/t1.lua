@@ -1,5 +1,5 @@
 --Copyright (c) 2011-2015 Zhihua Zhang (alacner@gmail.com)
-ngx.set_header('Content-Type', "text");
+ngx.set_header('Content-Type', "text/html");
 
 --local f = io.open('/root/test.jpg', 'rb')
 --ngx.print(f:read("*a"))

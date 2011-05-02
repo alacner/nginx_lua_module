@@ -1,6 +1,9 @@
 /* Copyright (C) Alacner */
 #define DDEBUG 1
 #include "ddebug.h"
+#include "strtok_r.h"
+
+#define lua_strtok_r(a, b, c) strtok_r((a), (b), (c))
 
 #include <ngx_config.h>
 #include <ngx_core.h>
@@ -44,21 +47,22 @@ static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char 
 static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r);
 static void log_wrapper(ngx_http_request_t *r, const char *ident, int level, lua_State *L);
 
-static int luaM_print (lua_State *L);
-static int luaM_set_header (lua_State *L);
+static int luaM_ngx_print (lua_State *L);
+static int luaM_ngx_set_header (lua_State *L);
+static int luaM_ngx_get (lua_State *L);
+static int luaM_ngx_post (lua_State *L);
 #if 0
-static int luaM_get_get (lua_State *L);
+static int luaM_ngx_cookie (lua_State *L);
+static int luaM_ngx_set_cookie (lua_State *L);
 
-static int luaM_get_request (lua_State *L);
 static int luaM_get_post (lua_State *L);
 static int luaM_get_files (lua_State *L);
 
 static int luaM_get_cookie (lua_State *L);
 static int luaM_set_cookie (lua_State *L);
-
 #endif
 static int
-luaM_print (lua_State *L) {
+luaM_ngx_print (lua_State *L) {
     size_t l = 0;
     const char *str = luaL_optlstring(L, 1, NULL, &l);
 
@@ -73,7 +77,7 @@ luaM_print (lua_State *L) {
 }
 
 static int
-luaM_set_header (lua_State *L) {
+luaM_ngx_set_header (lua_State *L) {
     const char *key = luaL_optstring(L, 1, NULL);
     const char *value = luaL_optstring(L, 2, NULL);
 
@@ -93,6 +97,53 @@ luaM_set_header (lua_State *L) {
         lua_pushboolean(L, 0);
     }
 
+    return 1;
+}
+
+static int
+luaM_ngx_get (lua_State *L) {
+    ngx_http_request_t *r;
+
+    lua_getglobal(L, LUA_NGX_REQUEST);
+    r = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (r == NULL) {
+        return luaL_error(L, "no request object found");
+    }
+
+    lua_newtable(L);
+
+    u_char *variables;
+    variables = ngx_pnalloc(r->pool, r->args.len+1);
+    ngx_cpystrn(variables, r->args.data, r->args.len+1);
+
+    char *strtok_buf, *variable, *k, *v;
+    variable = lua_strtok_r((char *)variables, "&", &strtok_buf);
+
+    while (variable) {
+        k = lua_strtok_r(variable, "=", &v);
+        lua_pushstring(L, v);
+        lua_setfield(L, -2, k);
+        variable = lua_strtok_r(NULL, "&", &strtok_buf);
+    }
+
+    return 1;
+}
+
+static int
+luaM_ngx_post (lua_State *L) {
+    ngx_http_request_t *r;
+
+    lua_getglobal(L, LUA_NGX_REQUEST);
+    r = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (r == NULL) {
+        return luaL_error(L, "no request object found");
+    }
+
+    lua_newtable(L);
     return 1;
 }
 
@@ -225,8 +276,16 @@ ngx_http_lua_create_loc_conf(ngx_conf_t *cf) {
 }
 
 static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char *value){
+    if (strcasecmp("Content-Type", key) == 0) { /* if key: content-type */
+        r->headers_out.content_type_len = strlen(key); 
+        r->headers_out.content_type.len = strlen(value);
+        r->headers_out.content_type.data = (u_char *)value;
+        r->headers_out.content_type_lowcase = NULL;
+        return NGX_OK;
+    }
 
-    ngx_table_elt_t *head_type = (ngx_table_elt_t *)ngx_list_push(&r->headers_out.headers);
+    ngx_table_elt_t *head_type;
+    head_type = (ngx_table_elt_t *)ngx_list_push(&r->headers_out.headers);
     if (head_type != NULL) {
         head_type->hash = 1;
         head_type->key.len = strlen(key);
@@ -242,9 +301,7 @@ static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char 
 }
 
 static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
-    ngx_int_t     rc;
-    ngx_buf_t    *b;
-    ngx_chain_t   out;
+    ngx_http_complex_value_t  cv;
     luaL_Buffer lb; /* for out_buf */
     ngx_http_lua_loc_conf_t *llcf;
 
@@ -254,7 +311,7 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
     lua_pushlightuserdata(L, r);
     lua_setglobal(L, LUA_NGX_REQUEST);
 
-
+    /* out buff */
     luaL_buffinit(L, &lb);
     lua_pushlightuserdata(L, &lb);
     lua_setglobal(L, LUA_NGX_OUT_BUFFER);
@@ -265,11 +322,17 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
     lua_pushnumber(L, ngx_random());
     lua_setfield(L, -2, "random");
 
-    lua_pushcfunction(L, luaM_print);
+    lua_pushcfunction(L, luaM_ngx_print);
     lua_setfield(L, -2, "print");
 
-    lua_pushcfunction(L, luaM_set_header);
+    lua_pushcfunction(L, luaM_ngx_set_header);
     lua_setfield(L, -2, "set_header");
+
+    luaM_ngx_get(L);
+    lua_setfield(L, -2, "get");
+
+    luaM_ngx_post(L);
+    lua_setfield(L, -2, "post");
 
     /* {{{ ngx.server */
     lua_newtable(L);
@@ -329,15 +392,16 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
 
     // execute lua code
     if (luaL_dofile(L, (const char *)llcf->file_src.data) != 0) {
-	ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+	    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "runtime error: %s", lua_tostring(L, -1));
         lua_pop(L, 1);
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
     luaL_pushresult(&lb);
-
-    const char *out_buf = lua_tostring(L, -1);
+    
+    size_t l = 0;
+    const char *out_buf = lua_tolstring(L, -1, &l);
 
     ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
             "concat all ngx.print data: %s", lua_tostring(L, -1));
@@ -345,44 +409,19 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
     lua_pop(L, 1);
 
 
-    // buff
-    b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
-    if (b == NULL) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
+    ngx_memzero(&cv, sizeof(ngx_http_complex_value_t));
 
-    out.buf = b;
-    out.next = NULL;
+    cv.value.len = l;
+    cv.value.data = (u_char *)out_buf;
 
-    b->pos = (u_char *)out_buf;
-    b->last = (u_char *)out_buf + strlen(out_buf);
-    b->memory = 1;
-    b->last_buf = 1;
-    r->headers_out.status = NGX_HTTP_OK;
-    r->headers_out.content_length_n = strlen(out_buf);
-
-    rc = ngx_http_send_header(r);
-
-    if (rc == NGX_ERROR || rc > NGX_OK || r->header_only) {
-        return rc;
-    }
-
-    return ngx_http_output_filter(r, &out);
+    return ngx_http_send_response(r, NGX_HTTP_OK, NULL, &cv);
 }
 
 static ngx_int_t
 ngx_http_lua_handler(ngx_http_request_t *r)
 {
-    ngx_int_t     rc;
-
     if (!(r->method & (NGX_HTTP_GET|NGX_HTTP_POST|NGX_HTTP_HEAD))) {
         return NGX_HTTP_NOT_ALLOWED;
-    }
-
-    rc = ngx_http_discard_request_body(r);
-
-    if (rc != NGX_OK && rc != NGX_AGAIN) {
-        return rc;
     }
 
     if (r->method == NGX_HTTP_HEAD) {
