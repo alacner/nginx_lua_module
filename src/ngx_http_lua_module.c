@@ -43,6 +43,7 @@ static char *ngx_http_lua_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_lua_process_init(ngx_cycle_t *cycle);
 static void ngx_http_lua_process_exit(ngx_cycle_t *cycle);
 
+//static void ngx_http_lua_post_body_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char *value);
 static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r);
 static void log_wrapper(ngx_http_request_t *r, const char *ident, int level, lua_State *L);
@@ -50,10 +51,10 @@ static void log_wrapper(ngx_http_request_t *r, const char *ident, int level, lua
 static int luaM_ngx_print (lua_State *L);
 static int luaM_ngx_set_header (lua_State *L);
 static int luaM_ngx_get (lua_State *L);
-static int luaM_ngx_post (lua_State *L);
-#if 0
-static int luaM_ngx_cookie (lua_State *L);
 static int luaM_ngx_set_cookie (lua_State *L);
+#if 0
+static int luaM_ngx_post (lua_State *L);
+static int luaM_ngx_cookie (lua_State *L);
 
 static int luaM_get_post (lua_State *L);
 static int luaM_get_files (lua_State *L);
@@ -130,7 +131,7 @@ luaM_ngx_get (lua_State *L) {
 
     return 1;
 }
-
+#if 0
 static int
 luaM_ngx_post (lua_State *L) {
     ngx_http_request_t *r;
@@ -144,7 +145,54 @@ luaM_ngx_post (lua_State *L) {
     }
 
     lua_newtable(L);
+
+    /* return empty table */
+    if (!(r->method & (NGX_HTTP_POST|NGX_HTTP_PUT))) {
+        return 1;
+    }
+
+    if (r->method == NGX_HTTP_POST) {
+        ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post:%V", &r->uri);
+        rc = ngx_http_read_client_request_body(r, ngx_http_lua_post_body_handler);
+ 
+        if (rc >= NGX_HTTP_SPECIAL_RESPONSE) 
+            return rc;
+        else
+            return NGX_DECLINED;
+    }
+
     return 1;
+}
+
+static void
+ngx_http_lua_post_body_handler(ngx_http_request_t *r) {
+    if (r->request_body) {
+        ngx_chain_t *cl;
+        for (cl = r->request_body->bufs; cl; cl = cl->next) {
+            ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post request body:%s", cl->buf->pos);
+        }
+    }
+}
+#endif
+
+/* TODO: to c module */
+static int luaM_ngx_set_cookie (lua_State *L){
+    //Set-Cookie: _ca=heheheh; expires=Thu, 01-Jan-1970 00:04:10 GMT; path=/; domain=domain; secure
+    const char *script = "return function (...) \
+    local name, value, expire, path, domain, secure = ...; \
+    if not name or not value then return false, 'cookie needs a name and a value' end \
+    local t = {}; \
+    table.insert(t, name .. '=' .. value); \
+    if (expire and expire > 0) then \
+        local e = os.date('!%A, %d-%b-%Y %H:%M:%S GMT', expire); \
+        table.insert(t, 'expires=' .. e); \
+    end \
+    if (path and path ~= '') then table.insert(t, 'path=' .. path) end \
+    if (domain and domain ~= '') then table.insert(t, 'domain=' .. domain) end \
+    if secure then table.insert(t, 'secure') end \
+    ngx.set_header('Set-Cookie', table.concat(t, '; ')); \
+    end";
+    return luaL_dostring(L, script);
 }
 
 /* Commands */
@@ -328,11 +376,16 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
     lua_pushcfunction(L, luaM_ngx_set_header);
     lua_setfield(L, -2, "set_header");
 
+    luaM_ngx_set_cookie(L);
+    lua_setfield(L, -2, "set_cookie");
+
     luaM_ngx_get(L);
     lua_setfield(L, -2, "get");
 
+    #if 0
     luaM_ngx_post(L);
     lua_setfield(L, -2, "post");
+    #endif
 
     /* {{{ ngx.server */
     lua_newtable(L);
