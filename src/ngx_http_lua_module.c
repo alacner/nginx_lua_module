@@ -50,6 +50,7 @@ static void log_wrapper(ngx_http_request_t *r, const char *ident, int level, lua
 
 static int luaM_ngx_print (lua_State *L);
 static int luaM_ngx_set_header (lua_State *L);
+static int luaM_ngx_get_header (lua_State *L);
 static int luaM_ngx_get (lua_State *L);
 static int luaM_ngx_set_cookie (lua_State *L);
 #if 0
@@ -96,6 +97,48 @@ luaM_ngx_set_header (lua_State *L) {
         lua_pushboolean(L, 1);
     } else {
         lua_pushboolean(L, 0);
+    }
+
+    return 1;
+}
+
+
+static int
+luaM_ngx_get_header (lua_State *L) {
+
+    ngx_http_request_t *r;
+
+    lua_getglobal(L, LUA_NGX_REQUEST);
+    r = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (r == NULL) {
+        return luaL_error(L, "no request object found");
+    }
+
+    lua_newtable(L);
+
+    ngx_list_part_t *part;
+    ngx_table_elt_t *header;
+    ngx_uint_t i;
+
+    part = &r->headers_in.headers.part;
+    header = part->elts;
+
+    for (i = 0; /* void */ ; i++) {
+
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                break;
+            }
+
+            part = part->next;
+            header = part->elts;
+            i = 0;
+        }
+
+        lua_pushlstring(L, (const char *)header[i].value.data, header[i].value.len);
+        lua_setfield(L, -2, (const char *)header[i].key.data);
     }
 
     return 1;
@@ -375,6 +418,9 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
 
     lua_pushcfunction(L, luaM_ngx_set_header);
     lua_setfield(L, -2, "set_header");
+
+    luaM_ngx_get_header(L);
+    lua_setfield(L, -2, "header");
 
     luaM_ngx_set_cookie(L);
     lua_setfield(L, -2, "set_cookie");
