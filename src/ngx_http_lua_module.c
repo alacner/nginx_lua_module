@@ -53,16 +53,9 @@ static int luaM_ngx_set_header (lua_State *L);
 static int luaM_ngx_get_header (lua_State *L);
 static int luaM_ngx_get (lua_State *L);
 static int luaM_ngx_set_cookie (lua_State *L);
-#if 0
-static int luaM_ngx_post (lua_State *L);
-static int luaM_ngx_cookie (lua_State *L);
+static int luaM_ngx_get_cookie (lua_State *L);
 
-static int luaM_get_post (lua_State *L);
-static int luaM_get_files (lua_State *L);
 
-static int luaM_get_cookie (lua_State *L);
-static int luaM_set_cookie (lua_State *L);
-#endif
 static int
 luaM_ngx_print (lua_State *L) {
     size_t l = 0;
@@ -102,6 +95,81 @@ luaM_ngx_set_header (lua_State *L) {
     return 1;
 }
 
+static int
+luaM_ngx_get_cookie (lua_State *L) {
+
+    ngx_http_request_t *r;
+
+    lua_getglobal(L, LUA_NGX_REQUEST);
+    r = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (r == NULL) {
+        return luaL_error(L, "no request object found");
+    }
+
+    lua_newtable(L);
+
+    ngx_int_t i, n;
+    ngx_table_elt_t **cookies;
+    u_char *p, *cookie;
+    ssize_t size;
+
+    n = r->headers_in.cookies.nelts;
+    if (n == 0) {
+        return 1;
+    }
+
+    cookies = r->headers_in.cookies.elts;
+
+    char *strtok_buf, *variable, *k, *v;
+
+    if (n == 1) {
+        variable = lua_strtok_r((char *)(*cookies)->value.data, ";", &strtok_buf);
+
+        while (variable) {
+            k = lua_strtok_r(variable, "=", &v);
+            lua_pushstring(L, v);
+            lua_setfield(L, -2, k);
+            variable = lua_strtok_r(NULL, ";", &strtok_buf);
+        }
+        return 1;
+    }
+
+    size = - (ssize_t) (sizeof("; ") - 1);
+
+    for (i = 0; i < n; i++) {
+        size += cookies[i]->value.len + sizeof("; ") - 1;
+    }
+
+    cookie = ngx_pnalloc(r->pool, size);
+    if (cookie == NULL) {
+        return 1;
+    }
+
+    p = cookie;
+
+    for (i = 0; /* void */ ; i++) {
+        p = ngx_copy(p, cookies[i]->value.data, cookies[i]->value.len);
+
+        if (i == n - 1) {
+            break;
+        }
+
+        *p++ = ';'; *p++ = ' ';
+    }
+
+    variable = lua_strtok_r((char *)cookie, ";", &strtok_buf);
+
+    while (variable) {
+        k = lua_strtok_r(variable, "=", &v);
+        lua_pushstring(L, v);
+        lua_setfield(L, -2, k);
+        variable = lua_strtok_r(NULL, ";", &strtok_buf);
+    }
+
+    return 1;
+}
 
 static int
 luaM_ngx_get_header (lua_State *L) {
@@ -418,6 +486,9 @@ static ngx_int_t ngx_set_http_by_lua(ngx_http_request_t *r){
 
     lua_pushcfunction(L, luaM_ngx_set_header);
     lua_setfield(L, -2, "set_header");
+
+    luaM_ngx_get_cookie(L);
+    lua_setfield(L, -2, "cookie");
 
     luaM_ngx_get_header(L);
     lua_setfield(L, -2, "header");

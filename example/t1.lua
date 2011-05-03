@@ -8,13 +8,16 @@ local kit = require("kit")
 local print_r  = kit.print_r
 --ngx.print(ngx.set_cookie)
 ngx.set_cookie('love', '123456') -- name, value, expire, path, domain, secure 
-ngx.set_cookie('isopen', 'true', 1000, '/', 'test.com') -- name, value, expire, path, domain, secure 
+ngx.set_cookie('isopen', 'true', 1000, '/', '192.168.137.126') -- name, value, expire, path, domain, secure 
 print_r(ngx)
+do return end
 local http = require("socket.http")
 local r, e, h = http.request("http://www.6uu.com")
 print_r(h)
+--ngx.set_header('X-Memc-Flags', "f1111122222222333333334444445");
 --ngx.set_header("Set-Cookie", 'love=xxx;');
-do return end
+ngx.print('exit?')
+
 --ngx.print(table.concat(p))
 --[[
 ]]
