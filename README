@@ -1,12 +1,7 @@
--- exapmle:
-        location ~/test {
-            lua_file "/usr/local/nginx/conf/test.lua";
-        }
+-- example:
 
-        location ~/lua {
-            lua_file "/usr/local/nginx/conf/lua.lua";
-        }
+    lua_file "/usr/local/nginx/conf/test.lua";
 
-
-
-Tue Apr 26 16:30:00 MST 2011
+    location ~/test {
+        lua_file "/usr/local/nginx/conf/test.lua";
+    }

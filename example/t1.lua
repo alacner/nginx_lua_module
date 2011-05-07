@@ -1,57 +1,65 @@
 --Copyright (c) 2011-2015 Zhihua Zhang (alacner@gmail.com)
 --ngx.set_header('Location', "http://www.google.com");
---do return end
-local log = print
+--ngx.set_cookie('love', '123456') -- name, value, expire, path, domain, secure 
+--ngx.set_cookie('aa', 'ssssss') -- name, value, expire, path, domain, secure 
 print = ngx.print
 local kit = require("kit")
 local print_r  = kit.print_r
 
-ngx.set_header('Content-Type', "image/png");
---ngx.set_header('Content-Type', "text/html");
+--ngx.set_header('Content-Type', "image/png");
+ngx.set_header('Content-Type', "text/html");
 
 --local f = io.open('/root/repos/nginx_lua_module/example/t1.lua', 'rb')
 --local f = io.open('/root/test.jpg', 'rb')
+--local t = f:read("*a")
+--ngx.print(t)
 
 local f = io.open('/root/480x480.png', 'rb')
---local a = f:read("*a")
+--local t = f:read("*a")
 --log(a)
-local t = f:read(8192)
-ngx.print(t)
-do return end
-print_r(ngx)
+--local t = f:read(8192)
+--ngx.print(t)
+--print_r(ngx)
+--ngx.flush()
+--ngx.print(t)
+--print_r(ngx)
+--ngx.flush()
+--ngx.print(t)
+--print_r(ngx)
 --local f = io.open('/root/test.jpg', 'rb')
 --local f = assert(io.open(arg[1], "rb"))
---[[
-local block = 10
-while true do
-    local bytes = f:read(block)
-    if not bytes then break end
-    for b in string.gfind(bytes, ".") do
-       print_r(string.format("%02X ", string.byte(b)))
-    end
-    print_r(string.rep("   ", block - string.len(bytes) + 1))
-    print_r(string.gsub(bytes, "%c", "."), "\n")
-end
---]]
-
 f:close()
+--ngx.print(ngx.set_cookie)
+local t = os.time()
+ngx.set_cookie('love1', "me") -- name, value, expire, path, domain, secure 
+--ngx.set_cookie('love2', "me", 100) -- name, value, expire, path, domain, secure 
+--ngx.set_cookie('love3', '123456') -- name, value, expire, path, domain, secure 
+--ngx.set_cookie('isopen', 'true', 1000, '/', '192.168.137.126') -- name, value, expire, path, domain, secure 
+ngx.set_header('X-Memc-Flags', "11111111111111");
+ngx.set_header('X-Memc-Flags', "2222222222222222222222222");
+ngx.set_header('X-Memc-Flags', "f1111122222222333333334444445");
 print_r(ngx)
---print_r(t)
+ngx.eof()
+do return end
+
+local http = require("socket.http")
+local r, e, h, l = http.request("http://www.6uu.com")
+print_r(h)
+print_r(l)
+print_r(m)
+ngx.eof()
 
 do return end
---ngx.print(ngx.set_cookie)
-ngx.set_cookie('love', '123456') -- name, value, expire, path, domain, secure 
-ngx.set_cookie('isopen', 'true', 1000, '/', '192.168.137.126') -- name, value, expire, path, domain, secure 
-print_r(ngx)
 
 
 local socket = require("socket")
 local tcp = socket.tcp()
 tcp:settimeout(1)
-local n,e,h = tcp:connect("www.6uu.com","80")
+local n,e,h = tcp:connect("www.google.com","80")
 print_r(n)
-print_r(e)
+--print_r(e)
 print_r(h)
+ngx.eof()
 
 do return end
 
