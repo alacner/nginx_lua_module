@@ -1,7 +1,7 @@
 
 /*
- * Copyright (C) Alacner Zhang
-*/ 
+ * Copyright (C) Alacner Zhang (alacner@gmail.com)
+ */
 
 
 #ifndef STRTOK_R_H

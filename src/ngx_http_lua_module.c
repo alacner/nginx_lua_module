@@ -1,6 +1,6 @@
 
 /*
- * Copyright (C) Alacner
+ * Copyright (C) Alacner Zhang (alacner@gmail.com)
  */
 
 
@@ -43,7 +43,7 @@ static ngx_http_output_body_filter_pt ngx_http_next_body_filter;
 static ngx_int_t ngx_http_lua_init(ngx_conf_t *cf);
 static void * ngx_http_lua_create_main_conf(ngx_conf_t *cf);
 static char * ngx_http_lua_init_main_conf(ngx_conf_t *cf, void *conf);
-static void *ngx_http_lua_create_loc_conf(ngx_conf_t *cf);
+static void * ngx_http_lua_create_loc_conf(ngx_conf_t *cf);
 
 static ngx_int_t ngx_http_lua_init_worker(ngx_cycle_t *cycle);
 static void ngx_http_lua_exit(ngx_cycle_t *cycle);
@@ -52,7 +52,6 @@ static ngx_int_t ngx_http_lua_send_chain_link(ngx_http_request_t *r, ngx_http_lu
 static ngx_int_t ngx_http_lua_header_filter(ngx_http_request_t *r);
 static ngx_int_t ngx_http_lua_body_filter(ngx_http_request_t *r, ngx_chain_t *in);
 
-//static void ngx_http_lua_post_body_handler(ngx_http_request_t *r);
 static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char *value);
 
 static lua_State* ngx_http_lua_create_interpreter(ngx_conf_t *cf, ngx_http_lua_main_conf_t *lmcf);
@@ -60,6 +59,7 @@ static char * ngx_http_lua_init_interpreter(ngx_conf_t *cf, ngx_http_lua_main_co
 
 static char *ngx_http_lua_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_lua_file_handler(ngx_http_request_t *r);
+static void ngx_http_lua_file_request_handler(ngx_http_request_t *r);
 
 static u_char * ngx_http_lua_script_filename(ngx_pool_t *pool, u_char *src, size_t len);
 
@@ -71,6 +71,7 @@ static int luaF_ngx_flush(lua_State *L);
 static int luaF_ngx_eof(lua_State *L);
 static int luaM_ngx_get_header (lua_State *L);
 static int luaM_ngx_get (lua_State *L);
+static int luaM_ngx_post (lua_State *L);
 static int luaM_ngx_get_cookie (lua_State *L);
 
 
@@ -425,11 +426,14 @@ luaM_ngx_get (lua_State *L)
 }
 
 
-#if 0
 static int
 luaM_ngx_post (lua_State *L)
 {
     ngx_http_request_t *r;
+    ngx_file_t file;
+    size_t size;
+    u_char *body;
+    ssize_t n;
 
     lua_getglobal(L, LUA_NGX_REQUEST);
     r = lua_touserdata(L, -1);
@@ -441,35 +445,36 @@ luaM_ngx_post (lua_State *L)
 
     lua_newtable(L);
 
-    /* return empty table */
-    if (!(r->method & (NGX_HTTP_POST|NGX_HTTP_PUT))) {
+    if (r->request_body == NULL || r->request_body->temp_file == NULL) {
         return 1;
     }
 
-    if (r->method == NGX_HTTP_POST) {
-        ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post:%V", &r->uri);
-        rc = ngx_http_read_client_request_body(r, ngx_http_lua_post_body_handler);
- 
-        if (rc >= NGX_HTTP_SPECIAL_RESPONSE) 
-            return rc;
-        else
-            return NGX_DECLINED;
+    file = r->request_body->temp_file->file;
+
+    if (ngx_file_info(file.name.data, &file.info) == NGX_FILE_ERROR) {
+        return luaL_error(L, "ngx_file_info failed");
     }
+
+    size = (size_t) ngx_file_size(&file.info);
+
+    body = ngx_pcalloc(r->pool, size);
+    if (body == NULL) {
+        return luaL_error(L, "palloc body out of memory");
+    }
+
+    n = ngx_read_file(&file, body, size, 0);
+
+    if (n == NGX_ERROR) {
+        ngx_log_error(NGX_LOG_CRIT, r->connection->log, ngx_errno,
+                           ngx_read_file_n " \"%s\" failed", file.name.data);
+        return luaL_error(L, "readfile failed");
+    }
+
+    lua_pushlstring(L, (const char *)body, size);
+    lua_setfield(L, -2, "_request_data_");
 
     return 1;
 }
-
-static void
-ngx_http_lua_post_body_handler(ngx_http_request_t *r)
-{
-    if (r->request_body) {
-        ngx_chain_t *cl;
-        for (cl = r->request_body->bufs; cl; cl = cl->next) {
-            ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post request body:%s", cl->buf->pos);
-        }
-    }
-}
-#endif
 
 
 static int
@@ -647,6 +652,35 @@ static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char 
 static ngx_int_t
 ngx_http_lua_file_handler(ngx_http_request_t *r)
 {
+    ngx_int_t rc;
+
+    if (r->method == NGX_HTTP_POST) {
+
+        r->request_body_in_file_only = 1;
+        r->request_body_in_persistent_file = 1;
+        r->request_body_in_clean_file = 1;
+        r->request_body_file_group_access = 1;
+        r->request_body_file_log_level = 0;
+
+        ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post:%V", &r->uri);
+        rc = ngx_http_read_client_request_body(r, ngx_http_lua_file_request_handler);
+
+        if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+            return rc;
+        }
+
+        return NGX_DONE;
+    }
+
+    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "get:%V", &r->uri);
+
+    ngx_http_lua_file_request_handler(r);
+    return NGX_OK;
+}
+
+static void
+ngx_http_lua_file_request_handler(ngx_http_request_t *r)
+{
     lua_State *L;
     ngx_http_lua_ctx_t *ctx;
     ngx_http_lua_main_conf_t *lmcf;
@@ -657,12 +691,14 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
     llcf = ngx_http_get_module_loc_conf(r, ngx_http_lua_module);
 
     if (ngx_http_complex_value(r, &llcf->file_src, &file_src) != NGX_OK) {
-        return NGX_ERROR;
+        ngx_http_finalize_request(r, NGX_ERROR);
+        return;
     }
     script_filename = ngx_http_lua_script_filename(r->pool, file_src.data, file_src.len);
 
     if (script_filename == NULL) {
-        return NGX_ERROR;
+        ngx_http_finalize_request(r, NGX_ERROR);
+        return;
     }
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_lua_module);
@@ -670,7 +706,8 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
     if (ctx == NULL) {
         ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_lua_ctx_t));
         if (ctx == NULL) {
-            return NGX_ERROR;
+            ngx_http_finalize_request(r, NGX_ERROR);
+            return;
         }
 
         ngx_http_set_ctx(r, ctx, ngx_http_lua_module);
@@ -685,6 +722,7 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
     lua_pushlightuserdata(L, r);
     lua_setglobal(L, LUA_NGX_REQUEST);
 
+    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "lua_newtable()");
 
     lua_newtable(L); /* ngx */
 
@@ -715,10 +753,8 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
     luaM_ngx_get(L);
     lua_setfield(L, -2, "get");
 
-    #if 0
     luaM_ngx_post(L);
     lua_setfield(L, -2, "post");
-    #endif
 
     /* {{{ ngx.server */
     lua_newtable(L);
@@ -781,10 +817,11 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
 	    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "runtime error: %s", lua_tostring(L, -1));
         lua_pop(L, 1);
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
     }
-    
-    return NGX_OK;
+
+    return;
 }
 
 

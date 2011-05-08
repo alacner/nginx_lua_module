@@ -1,17 +1,10 @@
--- Copyright (C) Alacner Zhang (alacner@gmail.com)
-
-require("nginx")
-
-print_r(ngx)
-ngx.eof()
-do return end
-
-require "lp"
-
-do return end
-
-
-
+--Copyright (c) 2011-2015 Zhihua Zhang (alacner@gmail.com)
+--ngx.set_header('Location', "http://www.google.com");
+--ngx.set_cookie('love', '123456') -- name, value, expire, path, domain, secure 
+--ngx.set_cookie('aa', 'ssssss') -- name, value, expire, path, domain, secure 
+print = ngx.print
+local kit = require("kit")
+local print_r  = kit.print_r
 
 --ngx.set_header('Content-Type', "image/png");
 ngx.set_header('Content-Type', "text/html");
