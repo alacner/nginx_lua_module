@@ -54,7 +54,7 @@ function insertfield (args, name, value)
 end
 
 ----------------------------------------------------------------------------
--- Parse url-encoded request data 
+-- Parse url-encoded request data
 --   (the query part of the script URL or url-encoded post data)
 --
 --  Each decoded (name=value) pair is inserted into table [[args]]
@@ -90,6 +90,6 @@ function encodetable (args)
       strp = strp.."&"..escape(key).."="..escape(val)
     end
   end
-  -- remove first & 
+  -- remove first &
   return string.sub(strp,2)
 end

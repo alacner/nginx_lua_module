@@ -8,7 +8,7 @@ function get(ct)
     if not ct then return false end
     local _,_,boundary = string.find (ct, "boundary%=(.-)$")
     if not boundary then return false end
-    return  "--"..boundary 
+    return  "--"..boundary
 end
 
 --
@@ -17,13 +17,13 @@ end
 function split(...)
     local request_data, boundary = ...
 
-    if not request_data then return false end; 
-    if not boundary then return false end; 
+    if not request_data then return false end;
+    if not boundary then return false end;
 
     local files, posts = {}, {}
 
     local post_temp = nginx.kit.split(request_data, boundary)
-    for i,pd in ipairs(post_temp) do 
+    for i,pd in ipairs(post_temp) do
 
         local headers = {}
         local hdrdata, post_val = string.match(pd, "(.+)\r\n\r\n(.+)\r\n")
@@ -48,13 +48,13 @@ function split(...)
                 local file = {}
                 file['type'] = headers["content-type"]
                 file['name'] = t["filename"]
-                file['data'] = post_val; 
-                file['size'] = string.len(post_val); 
+                file['data'] = post_val;
+                file['size'] = string.len(post_val);
 
                 files[t.name] = file
             else
-                posts[t.name] = post_val 
-            end 
+                posts[t.name] = post_val
+            end
         end
     end
 

@@ -1,7 +1,7 @@
 --Copyright (c) 2011-2015 Zhihua Zhang (alacner@gmail.com)
 --ngx.set_header('Location', "http://www.google.com");
---ngx.set_cookie('love', '123456') -- name, value, expire, path, domain, secure 
---ngx.set_cookie('aa', 'ssssss') -- name, value, expire, path, domain, secure 
+--ngx.set_cookie('love', '123456') -- name, value, expire, path, domain, secure
+--ngx.set_cookie('aa', 'ssssss') -- name, value, expire, path, domain, secure
 print = ngx.print
 local kit = require("kit")
 local print_r  = kit.print_r
@@ -31,10 +31,10 @@ local f = io.open('/root/480x480.png', 'rb')
 f:close()
 --ngx.print(ngx.set_cookie)
 local t = os.time()
-ngx.set_cookie('love1', "me") -- name, value, expire, path, domain, secure 
---ngx.set_cookie('love2', "me", 100) -- name, value, expire, path, domain, secure 
---ngx.set_cookie('love3', '123456') -- name, value, expire, path, domain, secure 
---ngx.set_cookie('isopen', 'true', 1000, '/', '192.168.137.126') -- name, value, expire, path, domain, secure 
+ngx.set_cookie('love1', "me") -- name, value, expire, path, domain, secure
+--ngx.set_cookie('love2', "me", 100) -- name, value, expire, path, domain, secure
+--ngx.set_cookie('love3', '123456') -- name, value, expire, path, domain, secure
+--ngx.set_cookie('isopen', 'true', 1000, '/', '192.168.137.126') -- name, value, expire, path, domain, secure
 ngx.set_header('X-Memc-Flags', "11111111111111");
 ngx.set_header('X-Memc-Flags', "2222222222222222222222222");
 ngx.set_header('X-Memc-Flags', "f1111122222222333333334444445");
