@@ -69,6 +69,7 @@ static int luaF_ngx_set_header (lua_State *L);
 static int luaF_ngx_set_cookie (lua_State *L);
 static int luaF_ngx_flush(lua_State *L);
 static int luaF_ngx_eof(lua_State *L);
+static int luaF_ngx_set_status(lua_State *L);
 static int luaM_ngx_get_header (lua_State *L);
 static int luaM_ngx_get (lua_State *L);
 static int luaM_ngx_post (lua_State *L);
@@ -741,6 +742,9 @@ ngx_http_lua_file_request_handler(ngx_http_request_t *r)
     lua_pushcfunction(L, luaF_ngx_eof);
     lua_setfield(L, -2, "eof");
 
+    lua_pushcfunction(L, luaF_ngx_set_status);
+    lua_setfield(L, -2, "set_status");
+
     luaM_ngx_get_cookie(L);
     lua_setfield(L, -2, "cookie");
 
@@ -1086,6 +1090,26 @@ luaF_ngx_eof(lua_State *L)
     if (rc == NGX_ERROR || rc >= NGX_HTTP_SPECIAL_RESPONSE) {
         return luaL_error(L, "failed to send eof buf");
     }
+
+    return 0;
+}
+
+static int
+luaF_ngx_set_status(lua_State *L)
+{
+    int status = luaL_optint(L, 1, 200);
+
+    ngx_http_request_t      *r;
+
+    lua_getglobal(L, LUA_NGX_REQUEST);
+    r = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (r == NULL) {
+        return luaL_error(L, "no request object found");
+    }
+
+    r->headers_out.status = status;
 
     return 0;
 }
