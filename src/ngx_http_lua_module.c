@@ -471,6 +471,22 @@ luaM_ngx_post (lua_State *L)
         return luaL_error(L, "readfile failed");
     }
 
+    if(r->method == NGX_HTTP_POST) {
+        u_char *variables;
+        variables = ngx_pnalloc(r->pool, size+1);
+        ngx_cpystrn(variables, body, size+1);
+
+        char *strtok_buf, *variable, *k, *v;
+        variable = lua_strtok_r((char *)variables, "&", &strtok_buf);
+
+        while (variable) {
+            k = lua_strtok_r(variable, "=", &v);
+            lua_pushstring(L, v);
+            lua_setfield(L, -2, k);
+            variable = lua_strtok_r(NULL, "&", &strtok_buf);
+        }
+    }
+
     lua_pushlstring(L, (const char *)body, size);
     lua_setfield(L, -2, "_request_data_");
 
@@ -655,7 +671,7 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
 {
     ngx_int_t rc;
 
-    if (r->method == NGX_HTTP_POST) {
+    if (r->method == NGX_HTTP_POST || r->method == NGX_HTTP_PUT) {
 
         r->request_body_in_file_only = 1;
         r->request_body_in_persistent_file = 1;
@@ -663,7 +679,7 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
         r->request_body_file_group_access = 1;
         r->request_body_file_log_level = 0;
 
-        ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post:%V", &r->uri);
+        //ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post:%V", &r->uri);
         rc = ngx_http_read_client_request_body(r, ngx_http_lua_file_request_handler);
 
         if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
@@ -673,7 +689,7 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
         return NGX_DONE;
     }
 
-    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "get:%V", &r->uri);
+    //ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "get:%V", &r->uri);
 
     ngx_http_lua_file_request_handler(r);
     return NGX_OK;
