@@ -1,11 +1,14 @@
-local function exit()
-	error("DONTCATCH")
+local __EXITERROR = "DONTCATCHME298254"
+
+function ngx.exit()
+	ngx.eof()
+	error(__EXITERROR)
 end
 
 local __FILE__ = ngx.server.SCRIPT_FILENAME
 
 local function debug_trace(err)
-	if err:find("DONTCATCH", 1, true) then return end
+	if err:find(__EXITERROR, 1, true) then return end
 	local ret = {err}
 	local lev = 2
 	local cur = nil
@@ -46,18 +49,18 @@ function ngx.require_auth(realm, callback)
 		ngx.set_status(401)
 		ngx.set_header('WWW-Authenticate', 'Basic realm="'..realm..'"')
 		ngx.print("Please authenticate")
-		ngx.eof()
-		exit()
+		ngx.exit()
 	end
 end
 
-local file = ngx.server.DOCUMENT_ROOT .. ngx.server.REQUEST_URI
+local file = ngx.get_variable("document_root") .. ngx.server.REQUEST_URI
 local f = io.open(file, "r")
 
 if f then
 	io.close(f)
 
 	local __FILE__ = file
+	local __EXITERROR = nil
 	ngx.server.SCRIPT_FILENAME = __FILE__
 
 	f = nil
