@@ -69,6 +69,8 @@ static int luaF_ngx_set_header (lua_State *L);
 static int luaF_ngx_set_cookie (lua_State *L);
 static int luaF_ngx_flush(lua_State *L);
 static int luaF_ngx_eof(lua_State *L);
+static int luaF_ngx_set_status(lua_State *L);
+static int luaF_ngx_get_variable(lua_State *L);
 static int luaM_ngx_get_header (lua_State *L);
 static int luaM_ngx_get (lua_State *L);
 static int luaM_ngx_post (lua_State *L);
@@ -374,7 +376,6 @@ luaM_ngx_get_header (lua_State *L)
     header = part->elts;
 
     for (i = 0; /* void */ ; i++) {
-
         if (i >= part->nelts) {
             if (part->next == NULL) {
                 break;
@@ -391,7 +392,6 @@ luaM_ngx_get_header (lua_State *L)
 
     return 1;
 }
-
 
 static int
 luaM_ngx_get (lua_State *L)
@@ -468,6 +468,22 @@ luaM_ngx_post (lua_State *L)
         ngx_log_error(NGX_LOG_CRIT, r->connection->log, ngx_errno,
                            ngx_read_file_n " \"%s\" failed", file.name.data);
         return luaL_error(L, "readfile failed");
+    }
+
+    if(r->method == NGX_HTTP_POST) {
+        u_char *variables;
+        variables = ngx_pnalloc(r->pool, size+1);
+        ngx_cpystrn(variables, body, size+1);
+
+        char *strtok_buf, *variable, *k, *v;
+        variable = lua_strtok_r((char *)variables, "&", &strtok_buf);
+
+        while (variable) {
+            k = lua_strtok_r(variable, "=", &v);
+            lua_pushstring(L, v);
+            lua_setfield(L, -2, k);
+            variable = lua_strtok_r(NULL, "&", &strtok_buf);
+        }
     }
 
     lua_pushlstring(L, (const char *)body, size);
@@ -625,8 +641,7 @@ static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char 
 
     if (strcasecmp("Content-Type", key) == 0) { /* if key: content-type */
         len = ngx_strlen(value);
-        r->headers_out.content_type_len = len; 
-        r->headers_out.content_type.len = len;
+        r->headers_out.content_type_len = len;
         r->headers_out.content_type.data = (u_char *)value;
         r->headers_out.content_type_lowcase = NULL;
         return NGX_OK;
@@ -654,7 +669,7 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
 {
     ngx_int_t rc;
 
-    if (r->method == NGX_HTTP_POST) {
+    if (r->method == NGX_HTTP_POST || r->method == NGX_HTTP_PUT) {
 
         r->request_body_in_file_only = 1;
         r->request_body_in_persistent_file = 1;
@@ -662,7 +677,7 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
         r->request_body_file_group_access = 1;
         r->request_body_file_log_level = 0;
 
-        ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post:%V", &r->uri);
+        //ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "post:%V", &r->uri);
         rc = ngx_http_read_client_request_body(r, ngx_http_lua_file_request_handler);
 
         if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
@@ -672,7 +687,7 @@ ngx_http_lua_file_handler(ngx_http_request_t *r)
         return NGX_DONE;
     }
 
-    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "get:%V", &r->uri);
+    //ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "get:%V", &r->uri);
 
     ngx_http_lua_file_request_handler(r);
     return NGX_OK;
@@ -722,7 +737,7 @@ ngx_http_lua_file_request_handler(ngx_http_request_t *r)
     lua_pushlightuserdata(L, r);
     lua_setglobal(L, LUA_NGX_REQUEST);
 
-    ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "lua_newtable()");
+    //ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0, "lua_newtable()");
 
     lua_newtable(L); /* ngx */
 
@@ -740,6 +755,12 @@ ngx_http_lua_file_request_handler(ngx_http_request_t *r)
 
     lua_pushcfunction(L, luaF_ngx_eof);
     lua_setfield(L, -2, "eof");
+
+    lua_pushcfunction(L, luaF_ngx_set_status);
+    lua_setfield(L, -2, "set_status");
+
+    lua_pushcfunction(L, luaF_ngx_get_variable);
+    lua_setfield(L, -2, "get_variable");
 
     luaM_ngx_get_cookie(L);
     lua_setfield(L, -2, "cookie");
@@ -776,6 +797,19 @@ ngx_http_lua_file_request_handler(ngx_http_request_t *r)
 
     lua_pushlstring(L, (const char *)r->method_name.data, r->method_name.len);
     lua_setfield(L, -2, "REQUEST_METHOD");
+
+    //IPs
+    u_char source_addr[NGX_SOCKADDR_STRLEN];
+    size_t len;
+
+    len = ngx_sock_ntop(r->connection->sockaddr, source_addr, NGX_SOCKADDR_STRLEN, 0);
+    lua_pushlstring(L, (const char *)source_addr, len);
+    lua_setfield(L, -2, "REMOTE_ADDR");
+
+    len = ngx_sock_ntop(r->connection->local_sockaddr, source_addr, NGX_SOCKADDR_STRLEN, 0);
+    lua_pushlstring(L, (const char *)source_addr, len);
+    lua_setfield(L, -2, "LOCAL_ADDR");
+    //END IPs
 
     if (r->headers_in.connection) {
         lua_pushlstring(L, (const char *)r->headers_in.connection->value.data, r->headers_in.connection->value.len);
@@ -969,7 +1003,6 @@ ngx_http_lua_init(ngx_conf_t *cf)
     return NGX_OK;
 }
 
-
 static u_char *
 ngx_http_lua_script_filename(ngx_pool_t *pool, u_char *src, size_t len)
 {
@@ -1088,4 +1121,71 @@ luaF_ngx_eof(lua_State *L)
     }
 
     return 0;
+}
+
+static int
+luaF_ngx_set_status(lua_State *L)
+{
+    int status = luaL_optint(L, 1, 200);
+
+    ngx_http_request_t      *r;
+
+    lua_getglobal(L, LUA_NGX_REQUEST);
+    r = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (r == NULL) {
+        return luaL_error(L, "no request object found");
+    }
+
+    r->headers_out.status = status;
+
+    return 0;
+}
+
+static int
+luaF_ngx_get_variable(lua_State *L)
+{
+    const char *name = luaL_optstring(L, 1, NULL);
+
+    ngx_http_request_t *r;
+
+    lua_getglobal(L, LUA_NGX_REQUEST);
+    r = lua_touserdata(L, -1);
+    lua_pop(L, 1);
+
+    if (r == NULL) {
+        return luaL_error(L, "no request object found");
+    }
+
+    if(name) {
+        ngx_str_t var;
+        var.len = strlen(name);
+        var.data = ngx_palloc(r->pool, var.len + 1);
+
+        if (var.data == NULL) {
+            return luaL_error(L, "OOM");
+        }
+
+        ngx_cpystrn(var.data, (u_char*)name, var.len + 1);
+        ngx_int_t key = ngx_hash_strlow(var.data, var.data, var.len);
+
+        ngx_http_variable_value_t *vv = ngx_http_get_variable(r, &var, key);
+        if(vv && !vv->not_found) {
+            u_char *dst = ngx_palloc(r->pool, vv->len + 1);
+
+            if (dst == NULL) {
+                return luaL_error(L, "OOM");
+            }
+
+            u_char *p = ngx_cpystrn(dst, vv->data, vv->len + 1);
+            *p = '\0';
+
+            lua_pushstring(L, (char *)dst);
+            return 1;
+        }
+    }
+
+    lua_pushnil(L);
+    return 1;
 }
