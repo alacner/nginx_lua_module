@@ -16,7 +16,7 @@
 #include "lauxlib.h"
 #include "lualib.h"
 
-#define safe_emalloc(nmemb, size, offset)  malloc((nmemb) * (size) + (offset)) 
+#define safe_emalloc(nmemb, size, offset)  malloc((nmemb) * (size) + (offset))
 
 
 typedef struct {
@@ -520,22 +520,22 @@ luaF_ngx_set_cookie (lua_State *L)
         lua_pushfstring(L, "; expires=%s", p);
         cnt++;
     }
-    
+
     if (path != NULL) {
         lua_pushfstring(L, "; path=%s", path);
         cnt++;
     }
-    
+
     if (domain != NULL) {
         lua_pushfstring(L, "; domain=%s", domain);
         cnt++;
     }
-    
+
     if (secure) {
         lua_pushfstring(L, "; secure");
         cnt++;
     }
-    
+
     if (http_only) {
         lua_pushfstring(L, "; HttpOnly");
         cnt++;
@@ -625,7 +625,7 @@ static ngx_int_t ngx_set_http_out_header(ngx_http_request_t *r, char *key, char 
 
     if (strcasecmp("Content-Type", key) == 0) { /* if key: content-type */
         len = ngx_strlen(value);
-        r->headers_out.content_type_len = len; 
+        r->headers_out.content_type_len = len;
         r->headers_out.content_type.len = len;
         r->headers_out.content_type.data = (u_char *)value;
         r->headers_out.content_type_lowcase = NULL;
